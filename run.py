@@ -41,5 +41,6 @@ if __name__ == '__main__':
     allurePath = os.path.join(RESULT_DIR, 'result-{}'.format(env))
     os.chdir(allurePath)
     os.system('allure generate --clean ' + allurePath)
+    os.system('allure serve ../result-test')
     # 处理报告文件中case时间与实际执行时间保持一致
     report_edit(env)

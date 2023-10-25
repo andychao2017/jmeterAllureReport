@@ -15,80 +15,113 @@ rm表示响应信息:status_message
 tn表示线程的名字“1-138”表示第1个线程组的第138个线程。:thread
 dt表示响应的文件类型
 by表示请求和响应的字节数
+sample: Transaction Controller运行结果，业务层面的Test Step
+httpSample: Transaction Controller下的每个http request运行结果，AllureReport层面的Test Step，是业务层面的Sub Step
+testResults中，tn相同的sample组成一条test case
 """
-import xmltodict
+# import xmltodict
 import pytest
 import json
 from datetime import datetime
 from util.path_manage import Path
 from util.file_manage import YamlManage
 import re
+from pyxml2dict import XML2Dict
 
 
 def xml_2_data(type: int = 1):
-    env = YamlManage('config.yml').get_data('env')
-
-    result_file = open(Path().get_xml_path(env, 'result.xml'.format(env, int(type))), "r", encoding='utf-8').read()
-
+    jmeter_result_file = Path().get_xml_path(YamlManage('config.yml').get_data('env'), 'result.xml')
     try:
-        converte_data = xmltodict.parse(result_file, encoding='utf-8')
-        # converte_data = xml2json.xml2json(result_file)
-        sample_keys = list(converte_data['testResults'].keys())
-        result = []
-        ws_result = []
-        sample_result = converte_data['testResults']['httpSample'] if isinstance(
-            converte_data['testResults']['httpSample'],
-            list) else [converte_data['testResults']['httpSample']]
-        if 'sample' in sample_keys:
-            ws_result = converte_data['testResults']['sample'] if isinstance(converte_data['testResults']['sample'],
-                                                                             list) else [
-                converte_data['testResults']['sample']]
-        result_data = sample_result + ws_result
-        for data in result_data:
-            time = data['@t'] if '@t' in data else ''
-            date = data['@ts'] if '@ts' in data else ''
-            # date = datetime.fromtimestamp(data['@ts']/1000).strftime("%Y:%m:%d %H:%M:%S") if '@ts' in data else None
-            # status用例运行断言 成功 or 失败
-            status = data['@s'] if '@s' in data else ''
-            title = data['@lb'] if '@lb' in data else ''
-            # status_code=200
-            status_code = data['@rc'] if '@rc' in data else ''
-            status_message = data['@rm'] if '@rm' in data else ''
-            thread = data['@tn'] if '@tn' in data else ''
-            assertion = data['assertionResult'] if 'assertionResult' in data else ''
-            response_data = data['responseData']['#text'] if 'responseData' in data and '#text' in data['responseData'] \
-                else ''
-            sampler_data = data['samplerData']['#text'] if 'samplerData' in data and '#text' in data['samplerData'] \
-                else ''
-            request_data = data['queryString']['#text'] if 'queryString' in data and '#text' in data[
-                'queryString'] else ''
-            request_header = data['requestHeader']['#text'] if 'requestHeader' in data and '#text' in data[
-                'requestHeader'] else ''
-            request_url = data['java.net.URL'] if 'java.net.URL' in data else ''
-            story = '未标记'
-            assertion_name, assertion_result = None, None
-            if status == 'false':
-                assertion_name, assertion_result = get_assertion(assertion)
-                # data = {'title': title, 'thread': thread, 'request_url': request_url, 'request_header': request_header,
-                #         'request_data': request_data, 'sampler_data': sampler_data, 'status_code': status_code,
-                #         'response_data': response_data, 'assertion_name': assertion_name,
-                #         'assertion_result': assertion_result
-                #         }
-                # story = set_fail_tag(data)
-
-            meta_data = (
-                time, date, status, story, title, status_code, status_message, thread, assertion_name, assertion_result,
-                response_data
-                , sampler_data, request_data, request_header, request_url)
-            # meta_data = (title,assertion_result)
-            result.append(meta_data)
-        return result
+        jmeter_result_data = XML2Dict().parse(jmeter_result_file)
+        dict_results = jmeter_result_data['testResults']
+        samples = dict_results['sample'] if isinstance(dict_results['sample'], list) else [dict_results['sample']]
+        tc_names = set([sample['@tn'] for sample in samples])
+        results = []
+        for tc_name in tc_names:
+            results.append(parse_test_cases(tc_name, samples))
+        return results
     except Exception as e:
         print(e)
         return [
             ('time', 'date', 'true', 'story', 'title', 'status_code', 'status_message', 'thread', 'assertion_name',
              'assertion_result',
              'response_data', 'sampler_data', 'request_data', 'request_header', 'request_url')]
+
+
+def parse_test_cases(tc_name, samples):
+    """
+    解析测试用例，包含：用例名称、运行结果、用时
+    :return:
+    """
+    # sample in xml represents a transaction controller, it's a bundle of api, but a logic step for business
+    controllers = (sample for sample in samples if sample['@tn'] == tc_name)
+    case_duration = 0
+    case_fail = False
+    case_step_results = []
+    for con in controllers:
+        if 'httpSample' in con:
+            case_step_results.extend(parse_test_steps(con["@lb"], con['httpSample']))
+        else:
+            # todo: parse bean shell sample
+            pass
+
+    for step in case_step_results:
+        case_duration += int(step['duration'])
+        if not case_fail:
+            case_fail = True if step['step_fail'] else case_fail
+
+    return tc_name, case_fail, case_duration, case_step_results
+
+
+def parse_test_steps(controller_name, api_call_results):
+    """
+    parse jmeter steps
+    every transaction controller is considered as a bundle of steps
+    every http request is considered as a test step for allure report
+    result for every step should contains：
+        - step name
+        - step duration
+        - date time
+        - request url
+        - request header
+        - request data (query string)
+        - status code
+        - status message
+        - response data
+        - assertion: a list of dict, every assertion contains name and failure [default: false]
+        - step fail: True = Any assert fail if asserts exist. Status code should be 2xx if no assert exist.
+    :return: rr_steps: request result for api calls in given transaction controller
+    """
+    rr_steps = []
+
+    for api in api_call_results:
+        step_name = f'{controller_name}_{api["@lb"]}'
+        url = api['java.net.URL'] if 'java.net.URL' in api else ''
+        header = api['requestHeader']['#text'] if 'requestHeader' in api and '#text' in api['requestHeader'] else ''
+        query_string = api['queryString']['#text'] if 'queryString' in api and '#text' in api['queryString'] else ''
+        response = api['responseData']['#text'] if 'responseData' in api and '#text' in api['responseData'] else ''
+        asserts = api['assertionResult'] if 'assertionResult' in api else None
+        step_fail = False
+        if asserts is not None:
+            for a in asserts:
+                step_fail = True if a['failure'].lower() != 'false' or a['error'].lower() != 'false' else step_fail
+                if step_fail: break
+        else:
+            step_fail = True if api['@rc'][:1] != '2' else step_fail
+
+        acr = {'name': step_name,
+               'duration': api['@t'],
+               'date': api['@ts'],
+               'request_url': url,
+               'request_header': header,
+               'request_data': query_string,
+               'status_code': api['@rc'],
+               'status_message': api['@rm'],
+               'response_data': response,
+               'asserts': asserts,
+               'step_fail': step_fail}
+        rr_steps.append(acr)
+    return rr_steps
 
 
 def get_assertion(assertion):

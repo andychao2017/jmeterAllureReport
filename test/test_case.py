@@ -62,21 +62,36 @@ class Test:
         else:
             assert True
 
-    @allure.title("{title}")
-    @allure.feature("失败信息")
-    @pytest.mark.parametrize(
-        "time,date,status,story,title,status_code,status_message,thread,assertion_name,assertion_result,response_data,sampler_data,request_data,request_header,"
-        "request_url",
-        xml_2_data(type=1))
-    def test_gjw(self, time, date, status, story, title, status_code, status_message, thread, assertion_name,
-                    assertion_result,
-                    response_data, sampler_data, request_data, request_header,
-                    request_url):
-        # allure.dynamic.story(story)
-        self.base_step(time, date, status, title, status_code, status_message, thread, assertion_name, assertion_result,
-                       response_data,
-                       sampler_data, request_data, request_header,
-                       request_url)
+    # @allure.title("{title}")
+    # @allure.feature("失败信息")
+    # @pytest.mark.parametrize(
+    #     "time,date,status,story,title,status_code,status_message,thread,assertion_name,assertion_result,response_data,sampler_data,request_data,request_header,"
+    #     "request_url",
+    #     xml_2_data(type=1))
+    # def test_gjw(self, time, date, status, story, title, status_code, status_message, thread, assertion_name,
+    #                 assertion_result,
+    #                 response_data, sampler_data, request_data, request_header,
+    #                 request_url):
+    #     # allure.dynamic.story(story)
+    #     self.base_step(time, date, status, title, status_code, status_message, thread, assertion_name, assertion_result,
+    #                    response_data,
+    #                    sampler_data, request_data, request_header,
+    #                    request_url)
+
+    @allure.title("{tc_name}")
+    @allure.feature("DMS")
+    @pytest.mark.parametrize("tc_name, case_fail, case_duration, case_step_results", xml_2_data(type=1))
+    def test_dms(self, tc_name, case_fail, case_duration, case_step_results):
+        for step in case_step_results:
+            with allure.step(step['name']):
+                allure.attach(str(step), name='attach_all_data', attachment_type=allure.attachment_type.JSON)
+                if step['step_fail'] and step['asserts'] is not None:
+                    pytest.assume(False, f'{step["asserts"]["name"]}: {step["asserts"]["failureMessage"]}')
+                elif step['step_fail'] and step['asserts'] is None:
+                    msg = f'{step["name"]}: Status Code is not 2xx. Actual status code is {step["status_code"]}'
+                    pytest.assume(False, msg)
+                else:
+                    pytest.assume(True)
 
 
 if __name__ == '__main__':
