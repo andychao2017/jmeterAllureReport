@@ -29,8 +29,8 @@ import re
 from pyxml2dict import XML2Dict
 
 
-def xml_2_data(type: int = 1):
-    jmeter_result_file = Path().get_xml_path(YamlManage('config.yml').get_data('env'), 'result.xml')
+def xml_2_data(filename: str = 'result.xml'):
+    jmeter_result_file = Path().get_xml_path(YamlManage('config.yml').get_data('env'), filename)
     try:
         jmeter_result_data = XML2Dict().parse(jmeter_result_file)
         dict_results = jmeter_result_data['testResults']
@@ -58,29 +58,31 @@ def parse_test_cases(tc_name, samples):
     case_duration = 0
     case_fail = False
     case_step_results = []
+    # case_step_results contains step_name, step_fail, step_duration, api_call_results
     for con in controllers:
         if 'httpSample' in con:
-            case_step_results.extend(parse_test_steps(con["@lb"], con['httpSample']))
+            api_in_con = parse_api_results(con['httpSample'])
+            step_fail = True if [api['api_fail'] for api in api_in_con].count(True) > 1 else False
+            step_duration = sum([int(api['duration']) for api in api_in_con])
+            step_result = {'name': con["@lb"], 'step_fail': step_fail, 'step_duration': step_duration,
+                           'api_results': api_in_con}
+            case_step_results.append(step_result)
         else:
             # todo: parse bean shell sample
             pass
-
-    for step in case_step_results:
-        case_duration += int(step['duration'])
-        if not case_fail:
-            case_fail = True if step['step_fail'] else case_fail
-
+    case_fail = True if [step['step_fail'] for step in case_step_results].count(True) > 1 else False
+    case_duration = sum([int(step['step_duration']) for step in case_step_results])
     return tc_name, case_fail, case_duration, case_step_results
 
 
-def parse_test_steps(controller_name, api_call_results):
+def parse_api_results(api_call_results):
     """
     parse jmeter steps
     every transaction controller is considered as a bundle of steps
     every http request is considered as a test step for allure report
     result for every step should contains：
-        - step name
-        - step duration
+        - name
+        - duration
         - date time
         - request url
         - request header
@@ -89,27 +91,27 @@ def parse_test_steps(controller_name, api_call_results):
         - status message
         - response data
         - assertion: a list of dict, every assertion contains name and failure [default: false]
-        - step fail: True = Any assert fail if asserts exist. Status code should be 2xx if no assert exist.
-    :return: rr_steps: request result for api calls in given transaction controller
+        - api fail: True = Any assert fail if asserts exist. Status code should be 2xx if no assert exist.
+    :return: rr_apis: request result for api calls in given transaction controller
     """
-    rr_steps = []
-
+    rr_apis = []
     for api in api_call_results:
-        step_name = f'{controller_name}_{api["@lb"]}'
+        api_name = api['@lb']
         url = api['java.net.URL'] if 'java.net.URL' in api else ''
         header = api['requestHeader']['#text'] if 'requestHeader' in api and '#text' in api['requestHeader'] else ''
         query_string = api['queryString']['#text'] if 'queryString' in api and '#text' in api['queryString'] else ''
         response = api['responseData']['#text'] if 'responseData' in api and '#text' in api['responseData'] else ''
         asserts = api['assertionResult'] if 'assertionResult' in api else None
-        step_fail = False
+        api_fail = False
         if asserts is not None:
             for a in asserts:
-                step_fail = True if a['failure'].lower() != 'false' or a['error'].lower() != 'false' else step_fail
-                if step_fail: break
+                api_fail = True if a['failure'].lower() != 'false' or a['error'].lower() != 'false' else api_fail
+                if api_fail:
+                    break
         else:
-            step_fail = True if api['@rc'][:1] != '2' else step_fail
+            api_fail = True if api['@rc'][:1] != '2' else api_fail
 
-        acr = {'name': step_name,
+        acr = {'name': api_name,
                'duration': api['@t'],
                'date': api['@ts'],
                'request_url': url,
@@ -119,9 +121,9 @@ def parse_test_steps(controller_name, api_call_results):
                'status_message': api['@rm'],
                'response_data': response,
                'asserts': asserts,
-               'step_fail': step_fail}
-        rr_steps.append(acr)
-    return rr_steps
+               'api_fail': api_fail}
+        rr_apis.append(acr)
+    return rr_apis
 
 
 def get_assertion(assertion):
@@ -169,4 +171,4 @@ def do_match(data, match):
 
 
 if __name__ == '__main__':
-    print(xml_2_data(5))
+    print(xml_2_data())

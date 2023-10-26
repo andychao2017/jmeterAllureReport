@@ -10,11 +10,11 @@ import sys
 import os
 import shutil
 from util.path_manage import Path
-from util.xml2report import xml_2_data
 from util.report_edit import report_edit
 from util.file_manage import YamlManage
+# from util.xml2report import xml_2_data
 
-result = xml_2_data()
+# result = xml_2_data()
 
 # case 路径
 CASE_DIR = Path().get_case_path()
@@ -43,4 +43,4 @@ if __name__ == '__main__':
     os.system('allure generate --clean ' + allurePath)
     os.system('allure serve ../result-test')
     # 处理报告文件中case时间与实际执行时间保持一致
-    report_edit(env)
+    # report_edit(env)
