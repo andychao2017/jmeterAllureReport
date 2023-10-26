@@ -10,9 +10,9 @@ import sys
 import os
 import shutil
 from util.path_manage import Path
-from util.report_edit import report_edit
 from util.file_manage import YamlManage
 # from util.xml2report import xml_2_data
+from util.report_edit import report_edit
 
 # result = xml_2_data()
 
